@@ -1,0 +1,21 @@
+# 运行本程序需要的第三方库
+# 安装：.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+# 界面
+PySide6>=6.6
+
+# 状态读取（米游社 / 森空岛并发请求）
+aiohttp>=3.9
+
+# 进程检测（MaaEnd 用游戏进程是否关闭判断完成）
+psutil>=5.9
+
+# 森空岛登录的二维码生成
+qrcode>=7.4
+
+# 只有 tools/prepare_assets.py 需要，用来生成图标和裁切素材。
+# 不想跑那个脚本的话可以不装。
+Pillow>=10.0
+
+# 只有打包 exe 时需要
+# pyinstaller>=6.0

@@ -1,0 +1,102 @@
+# ---------------- 凭据 ----------
+# 森空岛、米游社的登录凭据。这些是真实的账号凭证，绝不能进版本库。
+.dsh/
+*.dsh.bak
+skland_cred.bin
+skland_full.json
+skland_full.json.bak*
+mihoyo_cookies.bin
+app_stoken.json
+account.json
+cookies.json
+cookie_input.txt
+*.token
+*token*.json
+
+# ---------------- 官方美术素材 ----------------
+# assets/cyrene/原图/ 与 加工/ 里是《崩坏：星穹铁道》的官方美术资源，
+# 版权归米哈游所有。这里不随仓库分发。
+#
+# 想在自己机器上用完整的昔涟主题：
+#   1. 准备这些图：art-reading.png / art-starry.jpg / 星魂1~4.png
+#      / logo-official.png
+#   2. 放到 assets/cyrene/原图/
+#   3. 运行 python tools/prepare_assets.py 生成 加工/ 下的派生图
+# 没有素材时程序会自动使用「简约」主题，功能完全一致。
+assets/cyrene/原图/
+assets/cyrene/加工/
+
+# 立绘收藏（189 MB 的插画资源，同样不是本项目能分发的）
+Cyrene/
+
+# ---------------- 运行时产物 ----------------
+Anigame-script-manager/config.json
+Anigame-script-manager/config.json.bak
+Anigame-script-manager/config.json.bak-*
+Anigame-script-manager/config.json.bak_*
+Anigame-script-manager/logs/
+Anigame-script-manager/runtime_stats/
+Anigame-script-manager/startup_error.log
+logs/
+runtime_stats/
+*.log
+!.gitkeep
+
+# ---------------- 构建产物 ----------------
+build/
+dist/
+*.spec.bak
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---------------- 编辑器 / 系统 ----------------
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---------------- 旧版 / 临时 ----------
+游戏日常.exe
+*.bak
+*.bak-*
+*.bak_*
+*.old
+docs/预览/
+tools/_*.py
+.skland_did
+Anigame-script-manager/build_exe_v3.bat
+Anigame-script-manager/config/
+
+# 内部笔记与开发文档：写满了本机路径、调试过程、排查细节，
+# 属于给自己下次接手用的，不适合作为公开仓库的文档。
+docs/
+
+# 别的角色的图标，不是本项目的
+app.ico
+
+# status/ 下的旧登录工具。主程序只用到 providers / skland / logs /
+# accounts / genshin_widget 这五个；其余是当时摸索接口留下的脚本，
+# 它们 import 了 playwright、tkinter，会把依赖撑大，也没有维护价值。
+status/app_login_window.py
+status/captcha.py
+status/dashboard.py
+status/edge_login.py
+status/edge_login2.py
+status/login_another.py
+status/paste_cookie.py
+status/qr_login.py
+status/skland_login.py
+status/skland_login2.py
+status/stoken_login.py
+status/verify.py
+
+# 老的命令行入口，已经被 Anigame-script-manager 取代
+app.py
+run_queue.py
+maa_watch.py
+maaend_watch.py
