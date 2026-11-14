@@ -1333,10 +1333,8 @@ class MainWindow(QMainWindow):
             icon.setStyleSheet("background: transparent;")
             icon.setPixmap(icon_pm)
             lay.addWidget(icon)
-        else:
-            app_icon = QLabel(APP_NAME)
-            app_icon.setObjectName("BrandEn")
-            lay.addWidget(app_icon)
+        # 没有图标时不在这里补文字——下面的品牌区本来就会显示名字，
+        # 两处都显示会变成「Ripple Ripple · 涟漪」。
 
         # 品牌：官方的心形手写 logo（已裁掉透明留白）。
         logo_shown = False

@@ -74,10 +74,25 @@ datas += [
 #
 # 目录体积较大（约 190 MB），介意的话可以把 GALLERY_INCLUDE 设成 False，
 # 画廊会显示「没找到图片」，其余功能不受影响。
-GALLERY_INCLUDE = True
+#
+# 2026-11-15：改成由环境变量 RIPPLE_LITE 控制，这样一份 spec 能出两个版本。
+#   RIPPLE_LITE=1 → 素版（给公开仓库）：不带任何素材，约 130 MB
+#   RIPPLE_LITE 未设 → 完整版（自己用）：带素材和画廊，约 320 MB
+import os as _os
+
+LITE = _os.environ.get("RIPPLE_LITE", "") == "1"
+
+GALLERY_INCLUDE = not LITE
 GALLERY_DIR = ROOT / "Cyrene"
 if GALLERY_INCLUDE and GALLERY_DIR.is_dir():
     datas += [(str(GALLERY_DIR), "Cyrene")]
+
+# 素版还要把 assets/cyrene 那 9 MB 素材也去掉。
+# 代码里有 if exists 保护，找不到素材会自动退回「简约」主题，不会崩。
+if LITE:
+    datas = [d for d in datas if "assets/cyrene" not in d[1]]
+
+print(f"[build] 版本：{'素版（无素材）' if LITE else '完整版（含素材）'}")
 
 # 图标：用星魂4 生成的 app-icon.ico（多尺寸）。
 #

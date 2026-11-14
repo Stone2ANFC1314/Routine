@@ -334,7 +334,7 @@ class AppConfig:
     after_done_hibernate: bool = False   # 休眠
     after_done_close_emulator: bool = False  # 退出模拟器（MAA 用的 MuMu）
     after_done_close_tools: bool = False # 关闭本次启动过的工具
-    after_done_close_game: bool = False  # 关闭星铁（M7A 跑完不会退游戏）
+    after_done_close_game: bool = False  # 关闭游戏本体（兜底，各工具通常会自己关）
     # 美图画廊的图片目录。空字符串 = 用默认位置（exe 旁的 Cyrene/）。
     # 想让图放在别处（比如另一个盘的大文件夹）就填绝对路径。
     gallery_dir: str = ""
@@ -2170,16 +2170,17 @@ class ScriptRunnerWorker(QObject):
             self._after_done_power("sleep")
 
     def _after_done_close_game(self) -> None:
-        """关闭星铁本体。
+        """关闭星铁本体（兜底）。
 
-        为什么只有星铁：其他工具跑完都会自己把游戏关掉——
+        各工具跑完通常会自己关游戏：
         BetterGI 一条龙带「运行后关闭游戏」、绝区零一条龙用了 -o -c、
-        MaaEnd 的任务列表最后一项就是「关闭游戏 (PC)」。
-        只有 M7A 不会，它的 after_finish 只管自己退不退，不管游戏，
-        所以跑完星铁会一直开着。
+        MaaEnd 的任务列表最后一项就是「关闭游戏 (PC)」、
+        M7A 用 --after-finish Exit。
 
-        游戏还开着的话，自动关机常会卡在「有程序阻止关机」，
-        所以这一项主要是为了给关机让路。
+        但也可能因为任务没判定为完整完成而跳过收尾（一条龙的
+        execute_after_done 就要求 finish_reason == COMPLETED）。
+        游戏还开着时，自动关机常会卡在「有程序阻止关机」，
+        所以这一项是兜底，不是常规路径。
         """
         targets = ("StarRail.exe",)
         killed: list[str] = []

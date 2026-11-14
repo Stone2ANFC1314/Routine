@@ -100,3 +100,6 @@ app.py
 run_queue.py
 maa_watch.py
 maaend_watch.py
+
+# 上传 Release 用的 zip（体积大，用 GitHub Releases 分发，不进仓库）
+release/

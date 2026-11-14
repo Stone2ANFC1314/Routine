@@ -59,12 +59,12 @@ class AfterDoneDialog(QDialog):
         # ---- 清理项：优先执行 ----
         root.addWidget(self._group("清理"))
 
-        self.close_game_cb = QCheckBox("关闭崩坏：星穹铁道（M7A 不会自行关闭游戏，其余工具会自动关闭）")
+        self.close_game_cb = QCheckBox("关闭游戏本体")
         self.close_game_cb.setChecked(config.after_done_close_game)
         self.close_game_cb.setToolTip(
-            "BetterGI、绝区零一条龙、MaaEnd 结束后均会自动关闭游戏。\n"
-            "仅 M7A 不会——其 after_finish 设置只控制自身退出，不涉及游戏。\n"
-            "若星铁保持运行，自动关机可能因「有程序阻止关机」而中断。"
+            "各工具通常会在跑完后自己关游戏。\n"
+            "勾这项是兜底：万一游戏还开着，队列结束时替你关掉，\n"
+            "免得自动关机卡在「有程序阻止关机」。"
         )
         root.addWidget(self.close_game_cb)
 
