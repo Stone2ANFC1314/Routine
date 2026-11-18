@@ -2,6 +2,15 @@
 """离屏渲染主界面并截图，用于检查改动后的样子。
 
 只渲染，不启动任何游戏或脚本。
+
+字体处理
+--------
+必须走 ui.fonts.ensure_fonts()——和 main.py 完全一样的路径。
+不要只做 QFontDatabase.addApplicationFont：那样虽然能加载，
+但和真实运行时不一致，截图里行楷可能退化成黑体，看不出实际效果。
+
+（Qt 在 venv 里枚举不到系统字体，families() 返回空列表，
+所以必须主动注册 STXINGKA.TTF。这个坑踩过好几次。）
 """
 from __future__ import annotations
 
@@ -20,32 +29,33 @@ from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtGui import QFont, QFontDatabase  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from ui.fonts import ensure_fonts  # noqa: E402
 from ui.main_window_new import MainWindow  # noqa: E402
 
 OUT = REPO / "docs" / "预览"
 
-# 离屏渲染时 Qt 在 venv 里找不到字体目录，中文会全变成方块。
-# 显式从系统 fonts 目录加载。行楷也要——标题栏那句台词是行楷，
-# 不加载就退回黑体，截图里看不出「手写」的效果。
-SYSTEM_FONTS = [
-    r"C:\Windows\Fonts\msyh.ttc",      # 微软雅黑
-    r"C:\Windows\Fonts\msyhbd.ttc",    # 微软雅黑粗体
-    r"C:\Windows\Fonts\STXINGKA.TTF",  # 华文行楷（台词）
+# 正文字体（微软雅黑）。行楷由 ensure_fonts() 负责。
+BODY_FONTS = [
+    r"C:\Windows\Fonts\msyh.ttc",
+    r"C:\Windows\Fonts\msyhbd.ttc",
 ]
 
 
-def load_fonts(app: QApplication) -> None:
-    for path in SYSTEM_FONTS:
-        fid = QFontDatabase.addApplicationFont(path)
-        if fid < 0:
+def prepare_fonts(app: QApplication) -> None:
+    """和 main.py 一样：先 ensure_fonts，再设正文字体。"""
+    for path in BODY_FONTS:
+        if QFontDatabase.addApplicationFont(path) < 0:
             print(f"字体加载失败：{path}")
+
+    family = ensure_fonts()
+    print(f"手写字体：{family or '没找到，会退回黑体'}")
+
     families = set(QFontDatabase.families())
     for want in ("Microsoft YaHei", "微软雅黑"):
         if want in families:
             app.setFont(QFont(want, 9))
-            print(f"使用字体：{want}")
+            print(f"正文字体：{want}")
             break
-    print(f"行楷可用：{'STXingkai' in families}")
 
 
 def shoot(name: str, win: MainWindow) -> None:
@@ -57,16 +67,22 @@ def shoot(name: str, win: MainWindow) -> None:
 
 def main() -> int:
     app = QApplication(sys.argv)
-    load_fonts(app)
+    prepare_fonts(app)
+
     win = MainWindow()
     win.resize(1180, 760)
     win.show()
 
+    # 文件名带时间戳，避免缓存挡住新图
+    from datetime import datetime
+
+    stamp = datetime.now().strftime("%m%d_%H%M%S")
+
     def run() -> None:
-        shoot("自动化_超时可编辑.png", win)
+        shoot(f"主界面_{stamp}.png", win)
         app.quit()
 
-    QTimer.singleShot(700, run)
+    QTimer.singleShot(2500, run)
     return app.exec()
 
 

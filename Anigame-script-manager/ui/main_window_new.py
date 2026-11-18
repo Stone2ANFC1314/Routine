@@ -1809,20 +1809,26 @@ class MainWindow(QMainWindow):
         self.stop_button.setEnabled(False)
         lay.addWidget(self.stop_button)
 
-        # 结束后操作：位于「停止」右侧并以分隔线隔开。
-        # 它属于「任务结束后的后续行为」而非「运行控制」，
-        # 因此不与应用开始/暂停/停止控件相邻。
-        # 点击展开多选面板（锁屏/睡眠/休眠/关机/关闭工具/退出模拟器），
-        # 而非单一开关——各项影响程度差异大，合并会迫使二选一。
+        # 跑完关机：底栏一个开关，点一下切换。
+        #
+        # 原来这里是「结束后：xxx」按钮，点开一个 7 项的多选面板
+        # （关游戏/退模拟器/关工具/锁屏/睡眠/休眠/关机）。
+        # 后来用户把所有工具都设成了自己关游戏、自行退出，
+        # 那 6 项全成了多余——只留关机。
+        #
+        # 面板也一并去掉：只有一个开关的东西，不该再套一层弹窗。
         sep = QLabel("·")
         sep.setObjectName("FooterStatus")
         lay.addWidget(sep)
 
-        self.after_done_btn = QPushButton(self._after_done_text())
-        self.after_done_btn.setObjectName("Ghost")
-        self.after_done_btn.setToolTip("设置队列结束后执行的操作")
-        self.after_done_btn.clicked.connect(self.open_after_done)
-        lay.addWidget(self.after_done_btn)
+        self.shutdown_btn = QPushButton(self._shutdown_text())
+        self.shutdown_btn.setObjectName("Ghost")
+        self.shutdown_btn.setToolTip(
+            f"开启后，整个队列跑完会自动关机。\n"
+            f"延迟 {self.config.shutdown_delay_seconds} 秒，期间可以取消。"
+        )
+        self.shutdown_btn.clicked.connect(self.toggle_shutdown)
+        lay.addWidget(self.shutdown_btn)
 
         lay.addStretch(1)
         self.status_label = QLabel("待执行")
@@ -1830,40 +1836,22 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.status_label)
         return bar
 
-    def _after_done_text(self) -> str:
-        """底栏按钮上显示当前启用了哪些「结束后操作」。"""
-        cfg = self.config
-        marks: list[str] = []
-        if cfg.after_done_close_game:
-            marks.append("关闭星铁")
-        if cfg.after_done_close_emulator:
-            marks.append("退出模拟器")
-        if cfg.after_done_close_tools:
-            marks.append("关闭工具")
-        if cfg.after_done_lock:
-            marks.append("锁屏")
-        if cfg.after_done_sleep:
-            marks.append("睡眠")
-        if cfg.after_done_hibernate:
-            marks.append("休眠")
-        if cfg.shutdown_after_done:
-            marks.append("关机")
-        if not marks:
-            return "结束后：无操作"
-        if len(marks) == 1:
-            return f"结束后：{marks[0]}"
-        return f"结束后：{marks[0]} 等 {len(marks)} 项"
+    def _shutdown_text(self) -> str:
+        return "结束后：关机" if self.config.shutdown_after_done else "结束后：无操作"
 
-    def open_after_done(self) -> None:
-        from ui.after_done import AfterDoneDialog
+    def toggle_shutdown(self) -> None:
+        """切换队列跑完后是否关机。
 
-        dlg = AfterDoneDialog(self.config, self.theme, self)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        dlg.apply_to(self.config)
+        这是队列级开关，不是某个任务的——一个队列跑完关一次机就够了。
+        """
+        self.config.shutdown_after_done = not self.config.shutdown_after_done
         self.manager.save(self.config)
-        self.after_done_btn.setText(self._after_done_text())
-        self._say(f"结束后操作已更新：{self._after_done_text().replace('结束后：', '')}")
+        self.shutdown_btn.setText(self._shutdown_text())
+        delay = self.config.shutdown_delay_seconds
+        if self.config.shutdown_after_done:
+            self._say(f"队列跑完后将自动关机（{delay} 秒延迟，期间可取消）")
+        else:
+            self._say("已取消自动关机")
 
     # ---- 主题 ----
     def apply_theme(self) -> None:
@@ -2160,14 +2148,6 @@ class MainWindow(QMainWindow):
             logger=logger,
             stats_manager=stats,
             enable_timeout_screenshot=self.config.enable_timeout_screenshot,
-            after_done_actions={
-                "lock": self.config.after_done_lock,
-                "sleep": self.config.after_done_sleep,
-                "hibernate": self.config.after_done_hibernate,
-                "close_emulator": self.config.after_done_close_emulator,
-                "close_tools": self.config.after_done_close_tools,
-                "close_game": self.config.after_done_close_game,
-            },
         )
         self.worker_thread = QThread(self)
         self.worker.moveToThread(self.worker_thread)

@@ -318,23 +318,18 @@ class TaskConfig:
 
 @dataclass
 class AppConfig:
-    theme: str = "yukino"
+    # 默认主题。必须是 ui.theme.THEMES 里存在的 key——
+    # 这里写 "cyrene"（昔涟），素版加载时会因为没素材自动退回 plain。
+    theme: str = "cyrene"
+    # 队列跑完是否关机。只有一个开关——各工具跑完都会自己关游戏、
+    # 自己退出，所以「关游戏 / 退模拟器 / 关工具 / 锁屏 / 睡眠 / 休眠」
+    # 这些项都被去掉了，只留关机。
     shutdown_after_done: bool = False
     shutdown_delay_seconds: int = 60
     auto_exit_after_done: bool = False
     auto_start_tasks: bool = False
     windows_startup: bool = False
     enable_timeout_screenshot: bool = False
-    # 队列全部跑完之后的动作。参考 MAA 那个「完成后」选项组：
-    # 它把「退出模拟器 / 退出 MAA / 锁屏 / 睡眠 / 休眠 / 关机」分开勾选，
-    # 而不是只有一个「跑完关机」。
-    # 这里同样拆开，用户想只锁屏就不要被迫关机。
-    after_done_lock: bool = False        # 锁屏
-    after_done_sleep: bool = False       # 睡眠
-    after_done_hibernate: bool = False   # 休眠
-    after_done_close_emulator: bool = False  # 退出模拟器（MAA 用的 MuMu）
-    after_done_close_tools: bool = False # 关闭本次启动过的工具
-    after_done_close_game: bool = False  # 关闭游戏本体（兜底，各工具通常会自己关）
     # 美图画廊的图片目录。空字符串 = 用默认位置（exe 旁的 Cyrene/）。
     # 想让图放在别处（比如另一个盘的大文件夹）就填绝对路径。
     gallery_dir: str = ""
@@ -342,10 +337,23 @@ class AppConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AppConfig":
-        theme = str(data.get("theme", "yukino")).lower()
-        allowed_themes = {"light", "dark", "yukino", "campus", "fresh", "fantasy"}
-        if theme not in allowed_themes:
-            theme = "yukino"
+        # 主题白名单直接问 ui.theme 要，不要在这里手写一份。
+        # 2026-11-16 踩过：core 里写的是 {"light","dark","yukino",...}，
+        # 而 theme.py 里实际是 {cyrene, mist, indigo, plain} —— 两边对不上，
+        # 结果用户选的「昔涟」每次读配置都被判非法、退回默认，看起来像「主题丢了」。
+        theme = str(data.get("theme", "cyrene")).lower()
+        try:
+            from ui import theme as _theme_mod
+
+            allowed_themes = set(_theme_mod.THEMES.keys())
+            default_theme = _theme_mod.DEFAULT_THEME
+        except Exception:
+            # 理论上不会走到这里；拿不到就放行，别把用户的设置抹掉
+            allowed_themes = None
+            default_theme = theme
+
+        if allowed_themes is not None and theme not in allowed_themes:
+            theme = default_theme
 
         raw_tasks = data.get("tasks", [])
         tasks: List[TaskConfig] = []
@@ -366,12 +374,6 @@ class AppConfig:
             auto_start_tasks=bool(data.get("auto_start_tasks", False)),
             windows_startup=bool(data.get("windows_startup", False)),
             enable_timeout_screenshot=bool(data.get("enable_timeout_screenshot", False)),
-            after_done_lock=bool(data.get("after_done_lock", False)),
-            after_done_sleep=bool(data.get("after_done_sleep", False)),
-            after_done_hibernate=bool(data.get("after_done_hibernate", False)),
-            after_done_close_emulator=bool(data.get("after_done_close_emulator", False)),
-            after_done_close_tools=bool(data.get("after_done_close_tools", False)),
-            after_done_close_game=bool(data.get("after_done_close_game", False)),
             gallery_dir=str(data.get("gallery_dir", "") or "").strip(),
             tasks=tasks,
         )
@@ -385,12 +387,6 @@ class AppConfig:
             "auto_start_tasks": self.auto_start_tasks,
             "windows_startup": self.windows_startup,
             "enable_timeout_screenshot": self.enable_timeout_screenshot,
-            "after_done_lock": self.after_done_lock,
-            "after_done_sleep": self.after_done_sleep,
-            "after_done_hibernate": self.after_done_hibernate,
-            "after_done_close_emulator": self.after_done_close_emulator,
-            "after_done_close_tools": self.after_done_close_tools,
-            "after_done_close_game": self.after_done_close_game,
             "gallery_dir": self.gallery_dir,
             "tasks": [task.to_dict() for task in self.tasks],
         }
@@ -658,15 +654,12 @@ class ScriptRunnerWorker(QObject):
         logger: FileLogger,
         stats_manager: RuntimeStatsManager,
         enable_timeout_screenshot: bool = False,
-        after_done_actions: Dict[str, bool] | None = None,
     ):
         super().__init__()
         self.tasks = tasks
         self.shutdown_after_done = shutdown_after_done
         self.shutdown_delay_seconds = max(0, int(shutdown_delay_seconds))
         self.enable_timeout_screenshot = bool(enable_timeout_screenshot)
-        # 跑完之后的附加动作：锁屏 / 睡眠 / 休眠 / 退出模拟器 / 关工具
-        self.after_done_actions: Dict[str, bool] = dict(after_done_actions or {})
         self.logger = logger
         self.stats_manager = stats_manager
         self.stop_event = threading.Event()
@@ -871,12 +864,6 @@ class ScriptRunnerWorker(QObject):
                 self.log("所有任务执行完成。")
 
             self._save_abnormal_report()
-
-            # 队列全部跑完之后要做的事。
-            # 顺序有讲究：先关工具和模拟器（它们可能还占着资源），
-            # 最后才是锁屏/睡眠/休眠/关机——一旦锁屏或睡眠，
-            # 后面再想去关进程就难了。
-            self._run_after_done_actions()
 
             if self.shutdown_after_done:
                 delay = max(1, int(self.shutdown_delay_seconds or 60))
@@ -2134,158 +2121,6 @@ class ScriptRunnerWorker(QObject):
                 self.log(f"脚本进程已被强制结束，退出码：{process.returncode}。")
         except Exception as exc:
             self.log(f"终止脚本进程失败：{exc}")
-
-    def _run_after_done_actions(self) -> None:
-        """队列全部跑完之后的附加动作。
-
-        参考 MAA「完成后」那一组勾选：退出模拟器 / 退出工具 / 锁屏 /
-        睡眠 / 休眠 / 关机，彼此独立，可以只要其中一两个。
-
-        顺序很重要：先把占资源的关掉，最后才是锁屏和睡眠——
-        一旦锁屏或进了睡眠，后面再想操作进程就很别扭了。
-        """
-        acts = self.after_done_actions or {}
-        if not any(acts.values()):
-            return
-
-        self.log("开始执行「跑完以后」的动作…")
-
-        # 先关游戏，再关工具。反过来的话工具可能重新拉起游戏。
-        if acts.get("close_game"):
-            self._after_done_close_game()
-
-        if acts.get("close_tools"):
-            self._after_done_close_tools()
-
-        if acts.get("close_emulator"):
-            self._after_done_close_emulator()
-
-        if acts.get("lock"):
-            self._after_done_lock()
-
-        # 睡眠和休眠互斥：先休眠再睡眠没有意义，按更「深」的那个来。
-        if acts.get("hibernate"):
-            self._after_done_power("hibernate")
-        elif acts.get("sleep"):
-            self._after_done_power("sleep")
-
-    def _after_done_close_game(self) -> None:
-        """关闭星铁本体（兜底）。
-
-        各工具跑完通常会自己关游戏：
-        BetterGI 一条龙带「运行后关闭游戏」、绝区零一条龙用了 -o -c、
-        MaaEnd 的任务列表最后一项就是「关闭游戏 (PC)」、
-        M7A 用 --after-finish Exit。
-
-        但也可能因为任务没判定为完整完成而跳过收尾（一条龙的
-        execute_after_done 就要求 finish_reason == COMPLETED）。
-        游戏还开着时，自动关机常会卡在「有程序阻止关机」，
-        所以这一项是兜底，不是常规路径。
-        """
-        targets = ("StarRail.exe",)
-        killed: list[str] = []
-        for name in targets:
-            try:
-                r = subprocess.run(
-                    ["taskkill", "/F", "/IM", name],
-                    capture_output=True, text=True, encoding="gbk",
-                    errors="replace", timeout=15,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                if r.returncode == 0:
-                    killed.append(name)
-            except Exception:
-                continue
-        if killed:
-            self.log(f"已关闭游戏：{', '.join(killed)}")
-        else:
-            self.log("星铁没有在运行，跳过关闭游戏。")
-
-    def _after_done_close_tools(self) -> None:
-        """关闭本次队列启动过的工具进程。
-
-        只关我们自己启动过的那些（tasks 里配置的 exe 名），
-        不去碰用户手动开着的别的东西。
-        """
-        names: List[str] = []
-        for task in self.tasks:
-            if not task.enabled or not task.script_path.strip():
-                continue
-            try:
-                name = Path(task.script_path).name
-            except Exception:
-                continue
-            if name and name.lower().endswith(".exe") and name not in names:
-                names.append(name)
-        if not names:
-            return
-        for name in names:
-            try:
-                r = subprocess.run(
-                    ["taskkill", "/F", "/IM", name],
-                    capture_output=True, text=True, encoding="gbk",
-                    errors="replace", timeout=15,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                if r.returncode == 0:
-                    self.log(f"已关闭工具：{name}")
-            except Exception as exc:
-                self.log(f"关闭工具 {name} 失败：{exc}")
-
-    def _after_done_close_emulator(self) -> None:
-        """关闭安卓模拟器（MAA 用的 MuMu）。"""
-        candidates = ["MuMuPlayer.exe", "MuMuPlayer-12.0.exe", "NemuPlayer.exe"]
-        hit = False
-        for name in candidates:
-            try:
-                r = subprocess.run(
-                    ["taskkill", "/F", "/IM", name],
-                    capture_output=True, text=True, encoding="gbk",
-                    errors="replace", timeout=15,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                if r.returncode == 0:
-                    self.log(f"已关闭模拟器：{name}")
-                    hit = True
-            except Exception:
-                continue
-        if not hit:
-            self.log("没找到正在运行的模拟器，跳过。")
-
-    def _after_done_lock(self) -> None:
-        """锁屏。用 rundll32 调系统自带的锁屏接口。"""
-        try:
-            subprocess.Popen(
-                ["rundll32.exe", "user32.dll,LockWorkStation"],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, shell=False,
-            )
-            self.log("已锁屏。")
-        except Exception as exc:
-            self.log(f"锁屏失败：{exc}")
-
-    def _after_done_power(self, kind: str) -> None:
-        """睡眠 / 休眠。
-
-        Windows 用 rundll32 powrprof.dll 那条老路，最稳且不需要额外依赖。
-        休眠要求系统已启用休眠（powercfg /hibernate on），
-        没启用时命令会静默失败——这里只记日志，不报错。
-        """
-        if kind == "hibernate":
-            args = ["rundll32.exe", "powrprof.dll,SetSuspendState", "1,1,0"]
-            label = "休眠"
-        else:
-            args = ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"]
-            label = "睡眠"
-        try:
-            subprocess.Popen(
-                args,
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL, shell=False,
-            )
-            self.log(f"已发送{label}命令。")
-        except Exception as exc:
-            self.log(f"{label}失败：{exc}")
 
     def _schedule_shutdown(self) -> None:
         delay = max(0, int(self.shutdown_delay_seconds))

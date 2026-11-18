@@ -303,22 +303,33 @@ def stylesheet(t: Theme) -> str:
         border-radius: 14px;
     }}
 
-    /* ---------- 美图网格 ---------- */
+    /* ---------- 美图画廊 ---------- */
     QScrollArea#GalleryScroll, QWidget#GalleryInner {{
         background: transparent;
         border: none;
     }}
-    QFrame#ThumbTile {{
-        background-color: rgba(255, 255, 255, 26);
-        border: 1px solid rgba(255, 255, 255, 34);
-        border-radius: 10px;
+    /* 图片格子。不加内边距——图要顶到边，圆角靠 border-radius 裁。
+       悬停只提亮边框和底色，不做位移：瀑布流里位移会让相邻格跟着抖。 */
+    QFrame#GalleryTile {{
+        background-color: rgba(255, 255, 255, 18);
+        border: 1px solid rgba(255, 255, 255, 30);
+        border-radius: 8px;
     }}
-    QFrame#ThumbTile:hover {{
-        background-color: rgba(223, 123, 160, 60);
-        border-color: rgba(223, 123, 160, 160);
+    QFrame#GalleryTile:hover {{
+        background-color: rgba(223, 123, 160, 40);
+        border-color: rgba(223, 123, 160, 180);
     }}
-    QDialog#ImageViewer {{
-        background-color: rgba(12, 8, 20, 240);
+    /* 大图查看器的说明文字 */
+    QLabel#ViewerCaption {{
+        color: {t.on_dark_muted};
+        font-size: 12px;
+        letter-spacing: 1px;
+    }}
+    /* 空状态：图片很淡，文字要压得住 */
+    QLabel#EmptyTitle {{
+        color: {t.on_dark};
+        font-size: 17px;
+        font-family: "STXingkai", "华文行楷", {t.font_family};
     }}
 
     /* ---------- 侧栏状态卡 ---------- */
