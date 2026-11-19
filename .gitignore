@@ -1,6 +1,11 @@
 # ---------------- 凭据 ----------
 # 森空岛、米游社的登录凭据。这些是真实的账号凭证，绝不能进版本库。
+#
+# 状态目录：早期叫 .dsh，后来改名为 .ripple。改名的同时忘了加新目录规则，
+# 导致 .ripple/ 下的 accounts/*.bin、active_account、device_id.txt
+# 被提交进了仓库（已在历史中清除）。两个名字都留着。
 .dsh/
+.ripple/
 *.dsh.bak
 skland_cred.bin
 skland_full.json
