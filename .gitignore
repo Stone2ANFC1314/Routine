@@ -106,5 +106,9 @@ run_queue.py
 maa_watch.py
 maaend_watch.py
 
+# 参考用的第三方仓库 clone（比如圣遗物判定要看别人的实现），
+# 各有自己的 .git，不能当成本项目的一部分提交进来。
+.ref/
+
 # 上传 Release 用的 zip（体积大，用 GitHub Releases 分发，不进仓库）
 release/
