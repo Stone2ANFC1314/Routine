@@ -413,27 +413,61 @@ async def _skland_binding_shared() -> list[dict[str, Any]]:
     return games
 
 
+def _load_config_json() -> dict:
+    """读程序目录下的 config.json；读不到就当空配置。
+
+    直接用 json 读而不是 import core，因为 status/ 是独立包，
+    主程序会 import 它，它不该反过来依赖 core。
+    """
+    try:
+        from status.paths import data_dir
+
+        path = data_dir() / "config.json"
+        if path.exists():
+            import json
+
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+
+def _load_prefer_map() -> dict[str, str]:
+    """游戏 → 优先从哪个米游社账号读。没配就是空字典。"""
+    raw = _load_config_json().get("mihoyo_account_prefer")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items() if v}
+
+
+def _load_role_uid_map() -> dict[str, str]:
+    """游戏 → 精确匹配的游戏角色 UID。没配就是空字典。"""
+    raw = _load_config_json().get("mihoyo_role_uid")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items() if v}
+
+
 async def collect_mihoyo() -> dict[str, GameStatus]:
     """原神 / 绝区零 / 星铁。
 
-    用户有两个米游社账号：
-      YOUR_MIHOYO_UID —— 原神(GENSHIN_UID) + 绝区零(ZZZ_UID) + 星铁(STARRAIL_UID 六十级老角色)
-      YOUR_MIHOYO_UID_2 —— 原神(GENSHIN_UID_2 小号) + 星铁(STARRAIL_UID_2 七十级，平时在玩的)
+    一个米游社账号下可能绑着好几个游戏角色，甚至可能同时有两个账号。
+    早期这里把「哪个游戏读哪个账号」写死在代码里，那是开发者自己的
+    账号结构，别人 clone 下来完全用不上，还把自己的米游社 ID 和游戏
+    UID 摊在了公开仓库里。
 
-    所以每个游戏指定从哪个账号读，不把所有角色都列出来。
+    现在改成可选配置：config.json 里
+        "mihoyo_account_prefer": {"genshin": "123456789", ...}
+        "mihoyo_role_uid": {"starrail": "101234567"}
+    没配就按「任意账号里第一个匹配到的角色」走，对单账号用户来说
+    行为跟以前一样。
     """
     from status.accounts import load_all_accounts
 
-    # 游戏 → 该从哪个账号读（None = 任意账号里第一个）
-    PREFER = {
-        "genshin": "YOUR_MIHOYO_UID",
-        "zzz": "YOUR_MIHOYO_UID",
-        "starrail": "YOUR_MIHOYO_UID_2",
-    }
-    # 星铁要精确到这个等级 70 的角色，主号上那个 lv61 的老角色不要
-    TARGET_UID = {
-        "starrail": "STARRAIL_UID_2",
-    }
+    PREFER = _load_prefer_map()
+    TARGET_UID = _load_role_uid_map()
 
     out: dict[str, GameStatus] = {
         "genshin": GameStatus("genshin", "原神", stamina_label="树脂"),
@@ -816,7 +850,7 @@ async def collect_all() -> list[GameStatus]:
 
     verdicts = all_verdicts()
     for st in ordered:
-        # 多账号条目（key 形如 genshin_YOUR_MIHOYO_UID）映射回主 key
+        # 多账号条目（key 形如 genshin_<账号ID>）映射回主 key
         lookup = st.key.split("_")[0]
         v = verdicts.get(lookup)
         if not v:

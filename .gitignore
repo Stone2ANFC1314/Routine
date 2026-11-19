@@ -35,6 +35,13 @@ assets/cyrene/加工/
 Cyrene/
 
 # ---------------- 运行时产物 ----------------
+# config.json 是程序运行时生成的（含用户自己的路径和账号设置），
+# 两处都可能出现：项目根目录、以及主程序目录下。
+config.json
+config.json.bak
+config.json.bak-*
+config.json.bak_*
+!config.example.json
 Anigame-script-manager/config.json
 Anigame-script-manager/config.json.bak
 Anigame-script-manager/config.json.bak-*
@@ -109,6 +116,11 @@ maaend_watch.py
 # 参考用的第三方仓库 clone（比如圣遗物判定要看别人的实现），
 # 各有自己的 .git，不能当成本项目的一部分提交进来。
 .ref/
+
+# 完整版（Ripple）的工作目录，就放在本目录下面方便一起管理。
+# 它有自己的 .git 和远程仓库（私有），这里必须排除，
+# 否则 git 会把它当成一堆未跟踪文件，一不小心就提交进公开仓库。
+Ripple/
 
 # 上传 Release 用的 zip（体积大，用 GitHub Releases 分发，不进仓库）
 release/

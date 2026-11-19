@@ -134,13 +134,18 @@ if __name__ == "__main__":
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from providers import dpapi_decrypt
+    from paths import find_state_dir
 
     async def _main() -> None:
-        ck = json.loads(
-            dpapi_decrypt(
-                (Path(__file__).resolve().parent.parent / ".dsh" / "accounts" / "YOUR_MIHOYO_UID.bin").read_bytes()
-            )
-        )
+        # 别写死账号文件名：取状态目录里第一个 accounts/*.bin。
+        # 以前这里钉的是开发者自己的账号文件名，还指向改名前的旧目录名。
+        acc_dir = find_state_dir() / "accounts"
+        files = sorted(acc_dir.glob("*.bin")) if acc_dir.exists() else []
+        if not files:
+            print(f"没找到已登录的账号：{acc_dir}")
+            return
+        ck = json.loads(dpapi_decrypt(files[0].read_bytes()))
+        print(f"用账号 {files[0].stem}")
         async with aiohttp.ClientSession() as s:
             raw = await fetch_genshin_widget(s, ck)
         print(f"retcode = {raw.get('retcode')}")
