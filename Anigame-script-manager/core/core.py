@@ -198,6 +198,37 @@ def safe_int(value: Any, default: int = 0, min_value: Optional[int] = None) -> i
     return result
 
 
+def _parse_schedule(value: Any) -> List[Dict[str, Any]]:
+    """解析定时启动配置。
+
+    期望格式：[{"enabled": true, "hour": 7, "minute": 0}, ...]
+    容错：非列表 → 空列表；元素缺字段 → 补 0；hour 超出 0-23 或
+    minute 超出 0-59 → 该项置为 0（宁可变成「00:00 但没勾选」，
+    也不要因为一个脏值让整个配置读不出来）。
+    """
+    if not isinstance(value, list):
+        return []
+
+    result: List[Dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        hour = safe_int(item.get("hour", 0), 0, 0)
+        minute = safe_int(item.get("minute", 0), 0, 0)
+        if hour > 23:
+            hour = 0
+        if minute > 59:
+            minute = 0
+        result.append(
+            {
+                "enabled": bool(item.get("enabled", False)),
+                "hour": hour,
+                "minute": minute,
+            }
+        )
+    return result
+
+
 def normalize_keywords(value: Any) -> List[str]:
     """把导入配置中的目标进程/游戏窗口关键词统一成字符串列表。
 
@@ -327,9 +358,20 @@ class AppConfig:
     shutdown_after_done: bool = False
     shutdown_delay_seconds: int = 60
     auto_exit_after_done: bool = False
+    # 程序启动后立刻开始跑队列（不等时间点）。
     auto_start_tasks: bool = False
     windows_startup: bool = False
     enable_timeout_screenshot: bool = False
+    # 定时启动：每天到点自动跑一次队列。
+    #
+    # 存成 [{"enabled": bool, "hour": 0-23, "minute": 0-59}, ...]，
+    # 固定 8 个槽位（和界面上那 8 行一一对应）。默认全空、全不勾，
+    # 用户自己填——不预设任何时间，免得莫名其妙自己跑起来。
+    #
+    # 只在这一刻精确命中才触发（HH:MM 相等且当天没跑过），
+    # 不走「每 N 分钟轮询、错过就补跑」那套：
+    # 电脑睡眠醒来晚了不该补跑，否则可能半夜突然启动游戏。
+    schedule_times: List[Dict[str, Any]] = field(default_factory=list)
     # 美图画廊的图片目录。空字符串 = 用默认位置（exe 旁的 Cyrene/）。
     # 想让图放在别处（比如另一个盘的大文件夹）就填绝对路径。
     gallery_dir: str = ""
@@ -374,6 +416,7 @@ class AppConfig:
             auto_start_tasks=bool(data.get("auto_start_tasks", False)),
             windows_startup=bool(data.get("windows_startup", False)),
             enable_timeout_screenshot=bool(data.get("enable_timeout_screenshot", False)),
+            schedule_times=_parse_schedule(data.get("schedule_times")),
             gallery_dir=str(data.get("gallery_dir", "") or "").strip(),
             tasks=tasks,
         )
@@ -387,6 +430,7 @@ class AppConfig:
             "auto_start_tasks": self.auto_start_tasks,
             "windows_startup": self.windows_startup,
             "enable_timeout_screenshot": self.enable_timeout_screenshot,
+            "schedule_times": [dict(item) for item in self.schedule_times],
             "gallery_dir": self.gallery_dir,
             "tasks": [task.to_dict() for task in self.tasks],
         }
@@ -431,8 +475,13 @@ class ConfigManager:
             # 文件里 tasks 是空数组时也补一份默认清单：
             # 用户可能只是想清空，但对着空界面无从下手；
             # 真不想要的话点「停用」比一片空白好处理。
+            #
+            # 注意：只补 tasks，不能整个换成 _blank_config()。
+            # 之前是 `config = self._blank_config()`，把这行以外的所有设置
+            # （主题、定时启动、画廊目录…）一起冲掉了 —— 用户明明存过，
+            # 重启一次就变回默认值，看起来像"设置不生效"。
             if not config.tasks:
-                config = self._blank_config()
+                config.tasks = self._blank_config().tasks
                 self.save(config)
             return config
         except Exception as exc:

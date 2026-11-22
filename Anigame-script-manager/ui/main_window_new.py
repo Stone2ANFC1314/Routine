@@ -24,6 +24,7 @@ from PySide6.QtGui import (
     QColor,
     QFontMetrics,
     QImage,
+    QLinearGradient,
     QPainter,
     QPainterPath,
     QPen,
@@ -34,6 +35,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -44,6 +46,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -663,6 +666,179 @@ class TitleBar(QWidget):
         p.end()
 
 
+class CyreneVeil(QWidget):
+    """半透明立绘装饰：贴着容器右下角，左侧横向淡出。
+
+    为什么单独做一个控件而不是直接画在卡片上：
+    卡片里全是输入框和文字，往上叠图会跟内容抢注意力，也会让文字
+    读不清。这块是一层纯装饰，只从右侧露出边缘，既用到了那几张
+    从来没派上用场的立绘图，又不遮任何东西。
+
+    素材选择：**必须用带 alpha 通道的图**。
+    立绘2.png 是 2560x1440 不透明的矩形照片，只有横向淡出不够——
+    它的上边和下边仍然是硬边，贴着看就是一块方形色斑。
+    昔涟立绘.png 是 2048 见方的抠图（hasAlpha=True），四边本身就透明，
+    只需要再做一层横向淡出就干净了。
+
+    素版没有素材时整个控件隐藏，不占布局。
+    """
+
+    CANDIDATES = ("昔涟立绘.png", "星魂4PS.png", "2026.2.14情人节昔涟PS.png")
+    OPACITY = 0.17
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._pix: QPixmap | None = None
+        for name in self.CANDIDATES:
+            p = _asset("cyrene", "原图", name)
+            if not p.exists():
+                continue
+            pm = QPixmap(str(p))
+            if pm.isNull():
+                continue
+            # 只要带透明通道的：不透明的方图会在卡片上留一块硬边色块
+            if not pm.hasAlphaChannel():
+                continue
+            self._pix = pm
+            break
+        if self._pix is None:
+            self.setVisible(False)
+            return
+        # 不吃鼠标事件：它盖在别的控件上面，别挡点击
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        if self._pix is None:
+            return
+        w, h = self.width(), self.height()
+        if w <= 0 or h <= 0:
+            return
+
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+
+        # 取高度的 85%，宽度不够就整体缩
+        target_h = int(h * 0.85)
+        scaled = self._pix.scaledToHeight(
+            target_h, Qt.TransformationMode.SmoothTransformation
+        )
+        if scaled.width() > w:
+            scaled = scaled.scaled(
+                w, target_h,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+
+        x = w - scaled.width() + int(scaled.width() * 0.15)  # 右边略微出界
+        y = h - scaled.height()
+
+        # 横向渐变淡出：从左边全透明过渡到右边不透明。
+        # 直接贴上去会有一条竖直硬边，跟画廊空状态踩的是同一个坑。
+        layer = QPixmap(scaled.size())
+        layer.fill(Qt.GlobalColor.transparent)
+        lp = QPainter(layer)
+        lp.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        lp.drawPixmap(0, 0, scaled)
+        lp.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+        fade = QLinearGradient(0, 0, scaled.width(), 0)
+        fade.setColorAt(0.00, QColor(0, 0, 0, 0))
+        fade.setColorAt(0.45, QColor(0, 0, 0, 90))
+        fade.setColorAt(1.00, QColor(0, 0, 0, 255))
+        lp.fillRect(layer.rect(), fade)
+        lp.end()
+
+        p.setOpacity(self.OPACITY)
+        p.drawPixmap(x, y, layer)
+        p.end()
+
+
+class ScheduleRow(QWidget):
+    """定时启动的一行：勾选框 + 时 + 分。
+
+    为什么用 QSpinBox 而不是 QLineEdit：
+    手输时间要处理「9 / 09 / 早上九点」这些写法，还要校验越界。
+    SpinBox 自带上下限和步进，键盘上下键也能调，不容易填出非法值。
+
+    没勾选时把两个框变灰——一眼能看出这行没启用，不用去读勾选框。
+    """
+
+    changed = Signal()
+
+    def __init__(self, index: int, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._index = index
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        self.enable = QCheckBox(f"定时 {index}")
+        self.enable.setMinimumWidth(74)
+        self.enable.toggled.connect(self._on_enable_toggled)
+        row.addWidget(self.enable)
+
+        self.hour = QSpinBox()
+        self.hour.setRange(0, 23)
+        self.hour.setWrapping(True)
+        self.hour.setFixedWidth(58)
+        self.hour.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.hour.setToolTip("小时，0-23")
+        self.hour.valueChanged.connect(self._on_value_changed)
+        row.addWidget(self.hour)
+
+        colon = QLabel(":")
+        colon.setObjectName("SectionHint")
+        row.addWidget(colon)
+
+        self.minute = QSpinBox()
+        self.minute.setRange(0, 59)
+        self.minute.setWrapping(True)
+        self.minute.setFixedWidth(58)
+        self.minute.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.minute.setToolTip("分钟，0-59")
+        self.minute.valueChanged.connect(self._on_value_changed)
+        row.addWidget(self.minute)
+
+        row.addStretch(1)
+        self._on_enable_toggled(False)
+
+    def _on_enable_toggled(self, on: bool) -> None:
+        self.hour.setEnabled(on)
+        self.minute.setEnabled(on)
+        self.changed.emit()
+
+    def _on_value_changed(self, _v: int) -> None:
+        self.changed.emit()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enable.isChecked(),
+            "hour": self.hour.value(),
+            "minute": self.minute.value(),
+        }
+
+    def from_dict(self, data: dict[str, Any]) -> None:
+        """从配置灌入，期间屏蔽信号避免逐项触发存盘。"""
+        self.blockSignals(True)
+        self.enable.blockSignals(True)
+        self.hour.blockSignals(True)
+        self.minute.blockSignals(True)
+        try:
+            self.enable.setChecked(bool(data.get("enabled", False)))
+            self.hour.setValue(int(data.get("hour", 0) or 0))
+            self.minute.setValue(int(data.get("minute", 0) or 0))
+        finally:
+            self.enable.blockSignals(False)
+            self.hour.blockSignals(False)
+            self.minute.blockSignals(False)
+            self.blockSignals(False)
+        # 手动同步一次灰显状态（blockSignals 把 toggled 也挡掉了）
+        self.hour.setEnabled(self.enable.isChecked())
+        self.minute.setEnabled(self.enable.isChecked())
+
+
 class StaminaBar(QFrame):
     """一根很细的体力条，自绘渐变。
 
@@ -1156,6 +1332,40 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(120, self.refresh_status)
         QTimer.singleShot(1200, self.check_updates)
 
+        # 定时启动：把配置灌进界面并开始守点。
+        self._load_schedule_into_ui()
+        self._rearm_schedule_timer()
+
+        # 「打开就开始跑」：延后一点，等窗口画完、状态读一轮再动手，
+        # 否则用户看到的是一个卡住的界面，不知道程序在干嘛。
+        if self.config.auto_start_tasks:
+            QTimer.singleShot(2500, self._auto_start_if_idle)
+
+    def _auto_start_if_idle(self) -> None:
+        """勾了「打开就跑」时，启动后自动开跑一次。
+
+        只在空闲时触发：万一是被定时唤醒来、队列已经在跑，
+        再开一次就会两个队列抢键鼠。
+        """
+        if self.worker is not None:
+            return
+        if not any(task.enabled for task in self.config.tasks):
+            self.append_log("配置了打开就执行，但没有启用的任务，跳过。")
+            return
+        self.append_log("已启用「打开就执行」，开始跑队列。")
+        self.start_run()
+
+    def eventFilter(self, obj, event):  # noqa: N802
+        """设置页卡片尺寸变化时，把立绘重新贴到右下角。"""
+        place = getattr(self, "_place_settings_veil", None)
+        veil = getattr(self, "_settings_veil", None)
+        if place is not None and veil is not None and obj is veil.parent():
+            from PySide6.QtCore import QEvent
+
+            if event.type() == QEvent.Type.Resize:
+                place()
+        return super().eventFilter(obj, event)
+
     def _sync_corner_mode(self) -> None:
         """让背景层和 DWM 都切换到「圆角 / 直角」。"""
         if hasattr(self, "backdrop"):
@@ -1529,6 +1739,73 @@ class MainWindow(QMainWindow):
         form.addWidget(self.gallery_info)
 
         form.addSpacing(10)
+        form.addWidget(self._group_label("定时启动"))
+
+        sched_hint = QLabel(
+            "到点自动开始跑队列。时间点留空或没勾选就不会触发。"
+            "只在那一分钟命中一次，电脑睡过点了不补跑。"
+        )
+        sched_hint.setObjectName("SectionHint")
+        sched_hint.setWordWrap(True)
+        form.addWidget(sched_hint)
+
+        # 星魂4 做个小图标压在标题右边，呼应标题栏的星魂1。
+        # 没有素材（素版）就整个跳过，不留空白。
+        # 尺寸给 34：星魂4 原图 2048 见方，缩到 22 只剩一团粉色看不出是什么，
+        # 34 还能认出是她侧身抱膝的轮廓。
+        sched_head = QHBoxLayout()
+        sched_head.setSpacing(8)
+        soul = _asset("cyrene", "原图", "星魂4.png")
+        if soul.exists():
+            icon = QLabel()
+            pix = QPixmap(str(soul))
+            if not pix.isNull():
+                icon.setPixmap(
+                    pix.scaled(
+                        34, 34,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+                icon.setFixedSize(34, 34)
+                icon.setToolTip("星魂4")
+                sched_head.addWidget(icon)
+        self.schedule_summary = QLabel("未启用")
+        self.schedule_summary.setObjectName("SectionHint")
+        sched_head.addWidget(self.schedule_summary)
+        sched_head.addStretch(1)
+        sched_wrap = QWidget()
+        sched_wrap.setLayout(sched_head)
+        form.addWidget(sched_wrap)
+
+        # 8 个时间点，两列排布——一列排 8 行会把设置页撑得很长。
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(6)
+        self.schedule_rows: list[ScheduleRow] = []
+        for i in range(8):
+            row = ScheduleRow(i + 1)
+            row.changed.connect(self._on_schedule_changed)
+            self.schedule_rows.append(row)
+            grid.addWidget(row, i % 4, i // 4)
+        grid_wrap = QWidget()
+        grid_wrap.setLayout(grid)
+        form.addWidget(grid_wrap)
+
+        auto_row = QWidget()
+        auto_lay = QHBoxLayout(auto_row)
+        auto_lay.setContentsMargins(0, 6, 0, 0)
+        auto_lay.setSpacing(8)
+        self.auto_start_cb = QCheckBox("程序启动后立刻开始跑队列")
+        self.auto_start_cb.setToolTip(
+            "勾上之后，双击 Ripple.exe 打开就开始执行，不用再点「开始执行」。"
+        )
+        self.auto_start_cb.toggled.connect(self._on_auto_start_changed)
+        auto_lay.addWidget(self.auto_start_cb)
+        auto_lay.addStretch(1)
+        form.addWidget(auto_row)
+
+        form.addSpacing(10)
         form.addWidget(self._group_label("其他"))
         self.screenshot_cb = QCheckBox("超时处理时保存现场截图")
         self.screenshot_cb.setToolTip("任务超时或卡住时截一张屏，存到 logs/screenshots/")
@@ -1543,8 +1820,43 @@ class MainWindow(QMainWindow):
         # 之前设了 720 结果被压成一小块，说明文字折行折得很难看。
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
-        lay.addWidget(card)
-        lay.addStretch(1)
+        # 卡片 + 立绘叠层容器。
+        #
+        # 立绘用「子控件绝对定位」浮在卡片右下，不进布局：
+        # 进布局的话它会占掉整块高度，页面被撑得老长，而且滚动条
+        # 一出现就跟着卡片跑，位置全乱。
+        stack = QWidget(wrap)
+        stack_lay = QVBoxLayout(stack)
+        stack_lay.setContentsMargins(0, 0, 0, 0)
+        stack_lay.addWidget(card)
+
+        self._settings_veil = CyreneVeil(card)
+        self._settings_veil.setFixedSize(300, 340)
+        # 注意：这里不能用 isVisible() 判断——窗口还没 show 之前它恒为 False，
+        # 会把有素材的情况也一起隐藏掉。CyreneVeil 内部在找不到图时
+        # 已经自己 setVisible(False) 了，这里直接按「有没有图」决定要不要摆。
+        if self._settings_veil._pix is not None:
+            self._settings_veil.show()
+            self._settings_veil.raise_()
+        else:
+            self._settings_veil.hide()
+
+        # 卡片大小一变就把立绘重新贴到右下角。
+        # 用事件过滤器而不是覆写 resizeEvent：card 是 QFrame，
+        # 在这里再包一层子类不值得，过滤器足够。
+        def _place_veil() -> None:
+            veil = getattr(self, "_settings_veil", None)
+            if veil is None or not veil.isVisible():
+                return
+            cw, ch = card.width(), card.height()
+            vw, vh = veil.width(), veil.height()
+            veil.move(max(0, cw - vw - 12), max(0, ch - vh - 8))
+
+        self._place_settings_veil = _place_veil
+        card.installEventFilter(self)
+
+        lay.addWidget(stack, 1)
+        lay.addStretch(0)
         return wrap
 
     def _build_gallery_view(self) -> QWidget:
@@ -1587,6 +1899,89 @@ class MainWindow(QMainWindow):
         self.manager.save(self.config)
         self._update_gallery_info()
 
+    # ---------------- 定时启动 ----------------
+
+    def _on_schedule_changed(self) -> None:
+        """任何一行改动都立刻存盘。"""
+        self.config.schedule_times = [row.to_dict() for row in self.schedule_rows]
+        self.manager.save(self.config)
+        self._update_schedule_summary()
+        self._rearm_schedule_timer()
+
+    def _on_auto_start_changed(self, on: bool) -> None:
+        self.config.auto_start_tasks = bool(on)
+        self.manager.save(self.config)
+
+    def _update_schedule_summary(self) -> None:
+        """把「有哪些时间点会触发」汇总成一行提示。"""
+        active = [
+            item for item in (self.config.schedule_times or []) if item.get("enabled")
+        ]
+        if not active:
+            self.schedule_summary.setText("未启用")
+            return
+        # 同一天里这么多点不现实，但界面上告诉用户「会不会重复触发」更重要
+        text = "、".join(
+            f"{int(item['hour']):02d}:{int(item['minute']):02d}" for item in active
+        )
+        self.schedule_summary.setText(f"每天 {len(active)} 次：{text}")
+
+    def _load_schedule_into_ui(self) -> None:
+        """把配置灌进 8 行控件。不足 8 项就留空。"""
+        items = self.config.schedule_times or []
+        for i, row in enumerate(self.schedule_rows):
+            row.from_dict(items[i] if i < len(items) else {})
+        self.auto_start_cb.blockSignals(True)
+        self.auto_start_cb.setChecked(bool(self.config.auto_start_tasks))
+        self.auto_start_cb.blockSignals(False)
+        self._update_schedule_summary()
+
+    def _rearm_schedule_timer(self) -> None:
+        """重新挂定时检查。
+
+        每分钟打一次表，看当前 HH:MM 是否命中某个启用的时间点。
+        用 QTimer 而不是 Windows 计划任务：计划任务要管理员权限，
+        而且程序没开的时候它也没法替我们启动队列。
+        """
+        if not hasattr(self, "_schedule_timer") or self._schedule_timer is None:
+            self._schedule_timer = QTimer(self)
+            self._schedule_timer.setInterval(30_000)  # 30 秒查一次，宁可多查
+            self._schedule_timer.timeout.connect(self._check_schedule)
+            # 上次触发记成 "YYYY-MM-DD HH:MM"，同分钟只触发一次
+            self._last_fire_key: str | None = None
+        self._schedule_timer.start()
+
+    def _check_schedule(self) -> None:
+        """到点就自动开始跑队列。"""
+        from datetime import datetime
+
+        now = datetime.now()
+        key = now.strftime("%Y-%m-%d %H:%M")
+        if self._last_fire_key == key:
+            return  # 这一分钟已经触发过了
+
+        enabled = [
+            item for item in (self.config.schedule_times or []) if item.get("enabled")
+        ]
+        if not enabled:
+            return
+        if not any(
+            int(item.get("hour", -1)) == now.hour
+            and int(item.get("minute", -1)) == now.minute
+            for item in enabled
+        ):
+            return
+
+        self._last_fire_key = key
+
+        # 已经在跑就别叠加
+        if self.worker is not None:
+            self.append_log(f"定时启动到点（{key[11:]}），但队列正在运行，跳过。")
+            return
+
+        self.append_log(f"定时启动到点（{key[11:]}），开始执行队列。")
+        self.start_run()
+
     def _refresh_settings_view(self) -> None:
         # 切回设置页时同步一次当前配置（可能被别处改过）
         self.gallery_edit.blockSignals(True)
@@ -1594,6 +1989,7 @@ class MainWindow(QMainWindow):
         self.gallery_edit.blockSignals(False)
         self.screenshot_cb.setChecked(self.config.enable_timeout_screenshot)
         self.screenshot_cb.toggled.connect(self._on_screenshot_toggled)
+        self._load_schedule_into_ui()
         self._update_gallery_info()
 
     def _on_screenshot_toggled(self, checked: bool) -> None:
