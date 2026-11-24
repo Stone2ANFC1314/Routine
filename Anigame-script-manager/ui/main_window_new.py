@@ -2222,7 +2222,7 @@ class MainWindow(QMainWindow):
         self.shutdown_btn.setToolTip(
             "点一下切换跑完之后做什么：\n"
             "  无操作 → 关掉 Ripple → 关机\n"
-            f"关机和关程序都有 {self.config.shutdown_delay_seconds} 秒延迟，期间可以取消。"
+            f"关机和退出 Ripple 都有 {self.config.shutdown_delay_seconds} 秒延迟，期间可以取消。"
         )
         self.shutdown_btn.clicked.connect(self.toggle_shutdown)
         lay.addWidget(self.shutdown_btn)
@@ -2234,7 +2234,7 @@ class MainWindow(QMainWindow):
         return bar
 
     def _shutdown_text(self) -> str:
-        """底栏那个按钮现在三种状态，按「什么都不做 → 关程序 → 关机」循环。
+        """底栏那个按钮现在三种状态，按「什么都不做 → 退出 Ripple → 关机」循环。
 
         为什么不拆成两个按钮：底栏本来就窄，再塞一个会和「状态」挤在
         一起。三态循环只有一个控件，点几下就能摸清楚顺序。
@@ -2242,7 +2242,7 @@ class MainWindow(QMainWindow):
         if self.config.shutdown_after_done:
             return "结束后：关机"
         if self.config.auto_exit_after_done:
-            return "结束后：关程序"
+            return "结束后：退出Ripple"
         return "结束后：无操作"
 
     def toggle_shutdown(self) -> None:
@@ -2250,14 +2250,14 @@ class MainWindow(QMainWindow):
 
         这是队列级开关，不是某个任务的——一个队列跑完处理一次就够了。
 
-        顺序：无操作 → 关程序 → 关机 → 无操作。
-        先关程序再关机，是因为大多数人只想让程序别一直挂着，
+        顺序：无操作 → 退出 Ripple → 关机 → 无操作。
+        先退出再关机，是因为大多数人只想让程序别一直挂着，
         真正要关机的场景少一些，多点一下不算负担。
         """
         delay = self.config.shutdown_delay_seconds
         if not self.config.shutdown_after_done and not self.config.auto_exit_after_done:
             self.config.auto_exit_after_done = True
-            self._say(f"队列跑完后将关闭 Ripple（{delay} 秒延迟，期间可取消）")
+            self._say(f"队列跑完后将退出 Ripple（{delay} 秒延迟，期间可取消）")
         elif self.config.auto_exit_after_done and not self.config.shutdown_after_done:
             self.config.auto_exit_after_done = False
             self.config.shutdown_after_done = True
@@ -2656,7 +2656,7 @@ class MainWindow(QMainWindow):
         用户刚好在电脑前想看一眼结果，不至于窗口直接消失。
 
         这里没有系统命令可以做文章——不像关机有 `shutdown /a` 可以撤销，
-        关程序只能自己用 QTimer 撑着。所以取消与否全看这个计时器有没有被停掉。
+        退出只能自己用 QTimer 撑着。所以取消与否全看这个计时器有没有被停掉。
         """
         self._exit_deadline_left = max(1, int(delay))
         if getattr(self, "_exit_timer", None) is not None:
@@ -2669,7 +2669,7 @@ class MainWindow(QMainWindow):
 
         box = QMessageBox(self)
         box.setWindowTitle(APP_NAME)
-        box.setText(f"全部任务结束，{delay} 秒后关闭 Ripple。")
+        box.setText(f"全部任务结束，{delay} 秒后退出 Ripple。")
         box.setInformativeText("要留着看结果就点下面那个按钮；不管它会照常关闭。")
         cancel = box.addButton("取消关闭", QMessageBox.ButtonRole.RejectRole)
         box.addButton("关闭", QMessageBox.ButtonRole.AcceptRole)
@@ -2681,8 +2681,8 @@ class MainWindow(QMainWindow):
                 timer = getattr(self, "_exit_timer", None)
                 if timer is not None:
                     timer.stop()
-                self.append_log("已取消关闭程序")
-                self._say("已取消关闭程序")
+                self.append_log("已取消退出")
+                self._say("已取消退出")
 
         box.buttonClicked.connect(_on_clicked)
         box.show()
@@ -2697,7 +2697,7 @@ class MainWindow(QMainWindow):
         timer = getattr(self, "_exit_timer", None)
         if timer is not None:
             timer.stop()
-        self.append_log("关闭 Ripple。")
+        self.append_log("退出 Ripple。")
         # 先让日志、统计落盘，再退。直接 quit() 有可能丢最后几行。
         QApplication.processEvents()
         self.close()
