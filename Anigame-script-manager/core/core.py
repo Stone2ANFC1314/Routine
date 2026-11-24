@@ -692,6 +692,9 @@ class ScriptRunnerWorker(QObject):
     finished_signal = Signal(bool)  # bool: stopped_by_user_or_error
     buttons_unlock_signal = Signal()
     shutdown_prompt_signal = Signal(int)
+    # 队列跑完要关掉程序本身时发这个。延迟秒数作为参数带上，
+    # 界面据此给个「还剩 N 秒」的提示。
+    exit_app_signal = Signal(int)
     task_error_signal = Signal(str)
     task_launch_success_signal = Signal(str)
 
@@ -703,12 +706,14 @@ class ScriptRunnerWorker(QObject):
         logger: FileLogger,
         stats_manager: RuntimeStatsManager,
         enable_timeout_screenshot: bool = False,
+        exit_after_done: bool = False,
     ):
         super().__init__()
         self.tasks = tasks
         self.shutdown_after_done = shutdown_after_done
         self.shutdown_delay_seconds = max(0, int(shutdown_delay_seconds))
         self.enable_timeout_screenshot = bool(enable_timeout_screenshot)
+        self.exit_after_done = bool(exit_after_done)
         self.logger = logger
         self.stats_manager = stats_manager
         self.stop_event = threading.Event()
@@ -931,6 +936,18 @@ class ScriptRunnerWorker(QObject):
                 self.shutdown_prompt_signal.emit(delay)
             else:
                 self.log("未启用自动关机。")
+
+            # 关掉程序本身。
+            #
+            # 和关机是两回事，可以同时开：先由界面延时退出程序，
+            # 系统关机那条命令在这之前已经发出去了，互不干扰。
+            # 顺序上把退出放后面，是为了让日志、统计先落盘。
+            if self.exit_after_done:
+                delay = max(1, int(self.shutdown_delay_seconds or 60))
+                self.log(f"已启用跑完退出：程序将在 {delay} 秒后关闭。")
+                self.exit_app_signal.emit(delay)
+            else:
+                self.log("未启用跑完退出。")
 
             paths = self.stats_manager.save_session()
             if paths:
